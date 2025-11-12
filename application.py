@@ -19,14 +19,31 @@ def parse_arguments():
                        type=str, 
                        default='1998-01-01',
                        help='Start date for data retrieval (format: YYYY-MM-DD, default: 1998-01-01)')
+    parser.add_argument('--risky1',
+                       type=str,
+                       default='SPY',
+                       help='First risky asset ticker (default: SPY - S&P 500, also used for benchmark)')
+    parser.add_argument('--risky2',
+                       type=str,
+                       default='VINEX',
+                       help='Second risky asset ticker (default: VINEX - Vanguard International Explorer)')
+    parser.add_argument('--safe1',
+                       type=str,
+                       default='VUSTX',
+                       help='Safe asset ticker (default: VUSTX - Vanguard Long-term US Treasury)')
     return parser.parse_args()
 
 # Parse command line arguments
 args = parse_arguments()
 
-# VIDEO 2: DATA GRABBING (FROM YFINANCE)
+# Define instruments from command line arguments
+risky1 = args.risky1    # First risky asset (benchmark)
+risky2 = args.risky2    # Second risky asset
+safe1 = args.safe1      # Safe asset
+
+# VIDEO 2: DATA GRABBING (FROM YFINANCE)  
 # these raw data is collected for further calculations in this program
-all_tickers = ["SPY", "VINEX", "VUSTX"]
+all_tickers = [risky1, risky2, safe1]
 def get_data(start_date_str):
     close_prices = pd.DataFrame()
     # get data from specified start date to today
@@ -39,9 +56,10 @@ def get_data(start_date_str):
     # to get data of a specific range, please replace the two lines above with: (example, the two lines below)
     # beg_date = dt.date(2014, 6, 30)
     # end_date = dt.date(2016, 6, 30)
-    # SPY:      S&P 500
-    # VINEX:    Vanguard International Explorer
-    # VUSTX:    Vanguard Long-term US Treasury
+    # Instruments being analyzed:
+    # risky1:  First risky asset (benchmark): {risky1}
+    # risky2:  Second risky asset: {risky2}  
+    # safe1:   Safe asset: {safe1}
     
     # Create a list to store data for each ticker
     ticker_data = []
@@ -114,24 +132,24 @@ def get_data(start_date_str):
         return pd.DataFrame(columns=['Date'] + all_tickers)
 # Note that: "close_prices"(as defined locally above) is now "data" globally
 # Store the data retrieved as "data". We will call the retrieved data as "data" from now on.
-data = get_data(args.start_date)  # "data" containing rows: "Date", "SPY", "VINEX" and "VUSTX"
+data = get_data(args.start_date)  # "data" containing rows: "Date", risky1, risky2 and safe1
 
 # VIDEO 3: INITIALIZATION (OF NEW ATTRIBUTES & CONSTANTS)
 n1, n2, n3 = 1, 3, 6
-data_columns = [f"{n1} month return- SPY", f"{n1} month return- VINEX",
-                f"{n1} month return- VUSTX", f"{n2} month return- SPY",
-                f"{n2} month return- VINEX", f"{n2} month return- VUSTX",
-                f"{n3} month return- SPY", f"{n3} month return- VINEX",
-                f"{n3} month return- VUSTX", "total return- SPY",
-                "total return- VINEX", "total return- VUSTX"]
+data_columns = [f"{n1} month return- {risky1}", f"{n1} month return- {risky2}",
+                f"{n1} month return- {safe1}", f"{n2} month return- {risky1}",
+                f"{n2} month return- {risky2}", f"{n2} month return- {safe1}",
+                f"{n3} month return- {risky1}", f"{n3} month return- {risky2}",
+                f"{n3} month return- {safe1}", f"total return- {risky1}",
+                f"total return- {risky2}", f"total return- {safe1}"]
 for data_column in data_columns: data[data_column] = 0.0
-data["SPY > VINEX"], data["SPY > VUSTX"], data["VINEX > VUSTX"] \
+data[f"{risky1} > {risky2}"], data[f"{risky1} > {safe1}"], data[f"{risky2} > {safe1}"] \
     = False, False, False
 data["Output"], data["Benchmark"] = "", 0
 
 # VIDEO 4: SCORE CALCULATION I (CALCULATE RETURNS OF DIFFERENT PERIODS)
 # calculate 1,3,6-monthly & total monthly returns of different indexes
-for i in range(0, len(data["SPY"] - 1)):  # for rows in data retrieved
+for i in range(0, len(data[risky1] - 1)):  # for rows in data retrieved
     # calculate 1-monthly returns of different indexes
     for ticker in all_tickers:
         if (i - 1) < 0:  # entry 0 defined as 0.0
@@ -151,53 +169,53 @@ for i in range(0, len(data["SPY"] - 1)):  # for rows in data retrieved
                                              data[f"{n2} month return- " + ticker][i] + \
                                              data[f"{n3} month return- " + ticker][i]
     # use total returns to generate conditional signals
-    data["SPY > VINEX"][i] = (data["total return- SPY"][i] >= data["total return- VINEX"][i])
-    data["SPY > VUSTX"][i] = (data["total return- SPY"][i] >= data["total return- VUSTX"][i])
-    data["VINEX > VUSTX"][i] = (data["total return- VINEX"][i] >= data["total return- VUSTX"][i])
+    data[f"{risky1} > {risky2}"][i] = (data[f"total return- {risky1}"][i] >= data[f"total return- {risky2}"][i])
+    data[f"{risky1} > {safe1}"][i] = (data[f"total return- {risky1}"][i] >= data[f"total return- {safe1}"][i])
+    data[f"{risky2} > {safe1}"][i] = (data[f"total return- {risky2}"][i] >= data[f"total return- {safe1}"][i])
 
 # VIDEO 5: SCORE CALCULATION II (MORE CALCULATIONS)
 # Define initial capital
 initial_capital = 10000
 # remove first n1 values which are equal to 0
 data = data[n3:].reset_index(drop=True)
-data["Benchmark"][0] = initial_capital / (data["SPY"][0]) * data["SPY"][0]
+data["Benchmark"][0] = initial_capital / (data[risky1][0]) * data[risky1][0]
 # change "Output" value depending out total returns
-if data["SPY > VINEX"][0]:
-    data["Output"][0] = "SPY" if 0 < data["total return- SPY"][0] else "VUSTX"
+if data[f"{risky1} > {risky2}"][0]:
+    data["Output"][0] = risky1 if 0 < data[f"total return- {risky1}"][0] else safe1
 else:
-    data["Output"][0] = "VINEX" if data["total return- VINEX"][0] > 0 else "VUSTX"
+    data["Output"][0] = risky2 if data[f"total return- {risky2}"][0] > 0 else safe1
 # calculate benchmark values
-for i in range(1, len(data["SPY"] - 1)): data["Benchmark"][i] = initial_capital / (data["SPY"][0]) * (data["SPY"][i])
+for i in range(1, len(data[risky1] - 1)): data["Benchmark"][i] = initial_capital / (data[risky1][0]) * (data[risky1][i])
 
 # VIDEO 6: SIGNALS I (CREATE BUY SIGNALS)
-for i in range(1, len(data["SPY"] - 1)):
+for i in range(1, len(data[risky1] - 1)):
     # different cases of signals
-    if data["SPY > VINEX"][i]:
-        if data["total return- SPY"][i] > 0:
-            data["Output"][i] = "Keep SPY" \
-                if data["Output"][i - 1] == "SPY" or data["Output"][i - 1] == "Keep SPY" else "SPY"
+    if data[f"{risky1} > {risky2}"][i]:
+        if data[f"total return- {risky1}"][i] > 0:
+            data["Output"][i] = f"Keep {risky1}" \
+                if data["Output"][i - 1] == risky1 or data["Output"][i - 1] == f"Keep {risky1}" else risky1
         else:
-            data["Output"][i] = "Keep VUSTX" \
-                if data["Output"][i - 1] == "VUSTX" or data["Output"][i - 1] == "Keep VUSTX" else "VUSTX"
+            data["Output"][i] = f"Keep {safe1}" \
+                if data["Output"][i - 1] == safe1 or data["Output"][i - 1] == f"Keep {safe1}" else safe1
     else:
-        if data["total return- VINEX"][i] > 0:
-            if data["Output"][i - 1] == "VINEX" or data["Output"][i - 1] == "Keep VINEX":
-                data["Output"][i] = "Keep VINEX"
+        if data[f"total return- {risky2}"][i] > 0:
+            if data["Output"][i - 1] == risky2 or data["Output"][i - 1] == f"Keep {risky2}":
+                data["Output"][i] = f"Keep {risky2}"
             else:
-                data["Output"][i] = "VINEX"
+                data["Output"][i] = risky2
         else:
-            if data["Output"][i - 1] == "VUSTX" or data["Output"][i - 1] == "Keep VUSTX":
-                data["Output"][i] = "Keep VUSTX"
+            if data["Output"][i - 1] == safe1 or data["Output"][i - 1] == f"Keep {safe1}":
+                data["Output"][i] = f"Keep {safe1}"
             else:
-                data["Output"][i] = "VUSTX"
+                data["Output"][i] = safe1
 
 # VIDEO 7: SIGNALS II (STORE THE BUY SIGNALS & MORE CALCULATIONS)
 # create new dataset ("buy_signals") with only buy signals (remove Keep signals)
-buy_signals = data.drop(data[data.Output == "Keep VUSTX"].index).drop(data[data.Output == "Keep SPY"].index) \
-    .drop(data[data.Output == "Keep VINEX"].index).reset_index(drop=True)
+buy_signals = data.drop(data[data.Output == f"Keep {safe1}"].index).drop(data[data.Output == f"Keep {risky1}"].index) \
+    .drop(data[data.Output == f"Keep {risky2}"].index).reset_index(drop=True)
 # columns with qty amount to buy
-bs_columns = ["Qty VUSTX", "Qty SPY", "Qty VINEX", "VUSTX Buy Amount", "VUSTX Sell Amount", "SPY Buy Amount",
-              "SPY Sell Amount", "VINEX Buy Amount", "VINEX Sell Amount", "Buy Amount", "Sell Amount",
+bs_columns = [f"Qty {safe1}", f"Qty {risky1}", f"Qty {risky2}", f"{safe1} Buy Amount", f"{safe1} Sell Amount", f"{risky1} Buy Amount",
+              f"{risky1} Sell Amount", f"{risky2} Buy Amount", f"{risky2} Sell Amount", "Buy Amount", "Sell Amount",
               "P/L", "Cash Account", "realised_val"]
 for bs_column in bs_columns: buy_signals[bs_column] = 0.0
 for ticker in all_tickers:
@@ -205,8 +223,8 @@ for ticker in all_tickers:
         buy_signals["Qty " + ticker][0] = math.floor(initial_capital / buy_signals[ticker][0])
         buy_signals[ticker + " Buy Amount"][0] = buy_signals["Qty " + ticker][0] * buy_signals[ticker][0]
 # total buy amount
-buy_signals["Buy Amount"][0] = buy_signals["VUSTX Buy Amount"][0] + buy_signals["SPY Buy Amount"][0] + \
-                               buy_signals["VINEX Buy Amount"][0]
+buy_signals["Buy Amount"][0] = buy_signals[f"{safe1} Buy Amount"][0] + buy_signals[f"{risky1} Buy Amount"][0] + \
+                               buy_signals[f"{risky2} Buy Amount"][0]
 buy_signals["Cash Account"][0] = initial_capital - buy_signals["Buy Amount"][0]
 # realised value is cash value of assets + cash account at hand
 buy_signals["realised_val"][0] = buy_signals["Buy Amount"][0] + buy_signals["Cash Account"][0]
@@ -217,16 +235,16 @@ for i in range(1, len(buy_signals["Output"])):
         if buy_signals["Output"][i - 1] == ticker:
             buy_signals[ticker + " Sell Amount"][i] = buy_signals["Qty " + ticker][i - 1] * buy_signals[ticker][i]
     # total sell amount
-    buy_signals["Sell Amount"][i] = buy_signals["VUSTX Sell Amount"][i] + buy_signals["SPY Sell Amount"][i] + \
-                                    buy_signals["VINEX Sell Amount"][i]
+    buy_signals["Sell Amount"][i] = buy_signals[f"{safe1} Sell Amount"][i] + buy_signals[f"{risky1} Sell Amount"][i] + \
+                                    buy_signals[f"{risky2} Sell Amount"][i]
     for ticker in all_tickers:
         if buy_signals["Output"][i] == ticker:
             buy_signals["Qty " + ticker][i] = math.floor((buy_signals["Cash Account"][i - 1] +
                                                           buy_signals["Sell Amount"][i]) / buy_signals[ticker][i])
             buy_signals[ticker + " Buy Amount"][i] = buy_signals["Qty " + ticker][i] * buy_signals[ticker][i]
     # total buy amount
-    buy_signals["Buy Amount"][i] = buy_signals["VUSTX Buy Amount"][i] + buy_signals["SPY Buy Amount"][i] + \
-                                   buy_signals["VINEX Buy Amount"][i]
+    buy_signals["Buy Amount"][i] = buy_signals[f"{safe1} Buy Amount"][i] + buy_signals[f"{risky1} Buy Amount"][i] + \
+                                   buy_signals[f"{risky2} Buy Amount"][i]
     # cash account is the remaining balance after buying Whole shares
     buy_signals["Cash Account"][i] = buy_signals["Cash Account"][i - 1] - buy_signals["Buy Amount"][i] + \
                                      buy_signals["Sell Amount"][i]
@@ -238,16 +256,16 @@ for i in range(1, len(buy_signals["Output"])):
 buy_signals["Port_val"] = initial_capital
 # calculate portfolio value which tracks the real time value of assets in the portfolio
 for i in range(1, len(buy_signals["realised_val"])):
-    buy_signals["Port_val"][i] = (buy_signals["Qty VUSTX"][i] * buy_signals["VUSTX"][i]) + \
-                                 (buy_signals["Qty SPY"][i] * buy_signals["SPY"][i]) + \
-                                 (buy_signals["Qty VINEX"][i] * buy_signals["VINEX"][i]) + \
+    buy_signals["Port_val"][i] = (buy_signals[f"Qty {safe1}"][i] * buy_signals[safe1][i]) + \
+                                 (buy_signals[f"Qty {risky1}"][i] * buy_signals[risky1][i]) + \
+                                 (buy_signals[f"Qty {risky2}"][i] * buy_signals[risky2][i]) + \
                                  buy_signals["Cash Account"][i]
 
 # VIDEO 8: RESULTS SUMMARIZATION I
 # initialize all elements as 0.0 (we may change it to other numbers later on)
 results = data.copy()
-results_columns_1 = ["Qty VUSTX", "Qty SPY", "Qty VINEX", "VUSTX Buy Amount", "SPY Buy Amount", "VINEX Buy Amount",
-                     "VUSTX Sell Amount", "SPY Sell Amount", "VINEX Sell Amount", "Buy Amount", "Sell Amount",
+results_columns_1 = [f"Qty {safe1}", f"Qty {risky1}", f"Qty {risky2}", f"{safe1} Buy Amount", f"{risky1} Buy Amount", f"{risky2} Buy Amount",
+                     f"{safe1} Sell Amount", f"{risky1} Sell Amount", f"{risky2} Sell Amount", "Buy Amount", "Sell Amount",
                      "P/L", "realised_val", "Cash Account"]
 results_columns_2 = ["Port_val", "PortMax", "DrawDown", "%change monthly", "%change benchmark", "Qty"]
 for results_column in results_columns_1 + results_columns_2: results[results_column] = 0.0
@@ -262,20 +280,20 @@ for i in range(1, len(results["realised_val"])):
     results["realised_val"][i] = results["realised_val"][i - 1] if results["realised_val"][i] == 0 \
         else results["realised_val"][i]
     for ticker in all_tickers:
-        if results["Output"][i] == "Keep " + ticker:
-            results["Qty " + ticker][i] = results["Qty " + ticker][i - 1]
+        if results["Output"][i] == f"Keep {ticker}":
+            results[f"Qty {ticker}"][i] = results[f"Qty {ticker}"][i - 1]
         elif results["Output"][i] == ticker:
-            results["Qty " + ticker] = results["Qty " + ticker]
+            results[f"Qty {ticker}"] = results[f"Qty {ticker}"]
         else:
-            results["Qty " + ticker][i] = 0
-    results["Qty"][i] = results["Qty SPY"][i] + results["Qty VINEX"][i] + results["Qty VUSTX"][i]
+            results[f"Qty {ticker}"][i] = 0
+    results["Qty"][i] = results[f"Qty {risky1}"][i] + results[f"Qty {risky2}"][i] + results[f"Qty {safe1}"][i]
     if results["Cash Account"][i] == 0 and i != 0:
         results["Cash Account"][i] = results["Cash Account"][i - 1]
 results["Port_val"][0] = initial_capital
 results["PortMax"][0] = initial_capital
 for i in range(1, len(results["realised_val"])):
-    results["Port_val"][i] = (results["Qty VUSTX"][i] * results["VUSTX"][i]) + (
-            results["Qty SPY"][i] * results["SPY"][i]) + (results["Qty VINEX"][i] * results["VINEX"][i])
+    results["Port_val"][i] = (results[f"Qty {safe1}"][i] * results[safe1][i]) + (
+            results[f"Qty {risky1}"][i] * results[risky1][i]) + (results[f"Qty {risky2}"][i] * results[risky2][i])
     curr_set2 = results["Port_val"][0:i + 1]
     results["PortMax"][i] = curr_set2.max()
     results["DrawDown"][i] = (results["Port_val"][i] - results["PortMax"][i]) / results["PortMax"][i]
@@ -294,16 +312,16 @@ for i in range(1, len(results["realised_val"])):
 # VIDEO 9: RESULTS SUMMARIZATION II
 # prepare the string for the final result
 # list of attributes in the data(index 0), buy_signals(index 1) and results(index 2) dictionaries
-data_attr = [["SPY", "VINEX", "VUSTX", f"{n1} month return- SPY", f"{n1} month return- VINEX",
-              f"{n1} month return- VUSTX", f"{n2} month return- SPY", f"{n2} month return- VINEX",
-              f"{n2} month return- VUSTX", f"{n3} month return- SPY", f"{n3} month return- VINEX",
-              f"{n3} month return- VUSTX", "total return- SPY", "total return- VINEX", "total return- VUSTX",
-              "SPY > VINEX", "SPY > VUSTX", "VINEX > VUSTX", "Output", "Benchmark"],
-             ["Qty VUSTX", "Qty SPY", "Qty VINEX", "VUSTX Buy Amount", "VUSTX Sell Amount", "SPY Buy Amount",
-              "SPY Sell Amount", "VINEX Buy Amount", "VINEX Sell Amount", "Buy Amount", "Sell Amount", "P/L",
+data_attr = [[risky1, risky2, safe1, f"{n1} month return- {risky1}", f"{n1} month return- {risky2}",
+              f"{n1} month return- {safe1}", f"{n2} month return- {risky1}", f"{n2} month return- {risky2}",
+              f"{n2} month return- {safe1}", f"{n3} month return- {risky1}", f"{n3} month return- {risky2}",
+              f"{n3} month return- {safe1}", f"total return- {risky1}", f"total return- {risky2}", f"total return- {safe1}",
+              f"{risky1} > {risky2}", f"{risky1} > {safe1}", f"{risky2} > {safe1}", "Output", "Benchmark"],
+             [f"Qty {safe1}", f"Qty {risky1}", f"Qty {risky2}", f"{safe1} Buy Amount", f"{safe1} Sell Amount", f"{risky1} Buy Amount",
+              f"{risky1} Sell Amount", f"{risky2} Buy Amount", f"{risky2} Sell Amount", "Buy Amount", "Sell Amount", "P/L",
               "Cash Account", "realised_val", "Output"],
-             ["Qty VUSTX", "Qty SPY", "Qty VINEX", "VUSTX Buy Amount", "SPY Buy Amount", "VINEX Buy Amount",
-              "VUSTX Sell Amount", "SPY Sell Amount", "VINEX Sell Amount", "Buy Amount", "Sell Amount", "realised_val",
+             [f"Qty {safe1}", f"Qty {risky1}", f"Qty {risky2}", f"{safe1} Buy Amount", f"{risky1} Buy Amount", f"{risky2} Buy Amount",
+              f"{safe1} Sell Amount", f"{risky1} Sell Amount", f"{risky2} Sell Amount", "Buy Amount", "Sell Amount", "realised_val",
               "P/L", "Port_val", "Cash Account", "PortMax", "DrawDown", "%change monthly", "%change benchmark", "Qty"]]
 # calculate data 2 dates
 date2 = []
@@ -360,21 +378,46 @@ def generate_chart_data():
     print(f"Chart data points: {len(chart_data['dates'])}")
     return json.dumps(chart_data)
 
-def generate_statistics_table(stats):
-    """Generate HTML for the statistics comparison table"""
-    html = "<table class='statistics-table'>"
-    html += "<tr><th>Metric</th><th>Dual Momentum Portfolio</th><th>S&P 500 Buy & Hold</th></tr>"
+def generate_input_parameters_table():
+    """Generate HTML for the input parameters table"""
+    # Get actual date range from the data
+    start_date = results["Date"][0] if len(results["Date"]) > 0 else "N/A"
+    end_date = results["Date"][len(results["Date"]) - 1] if len(results["Date"]) > 0 else "N/A"
     
-    html += f"<tr><td class='metric-name'>Initial Value</td><td>${stats['initial_value']:,.2f}</td><td>${stats['initial_value']:,.2f}</td></tr>"
+    html = "<table class='statistics-table'>"
+    html += "<tr><th>Input Parameter</th><th>Value</th><th>Description</th></tr>"
+    
+    html += f"<tr><td class='metric-name'>Analysis Start Date</td><td>{start_date}</td><td>First date in analysis period</td></tr>"
+    html += f"<tr><td class='metric-name'>Analysis End Date</td><td>{end_date}</td><td>Last date in analysis period</td></tr>"
+    html += f"<tr><td class='metric-name'>Risky Asset 1 (Benchmark)</td><td>{risky1}</td><td>Primary risky asset and benchmark</td></tr>"
+    html += f"<tr><td class='metric-name'>Risky Asset 2</td><td>{risky2}</td><td>Secondary risky asset</td></tr>"
+    html += f"<tr><td class='metric-name'>Safe Asset</td><td>{safe1}</td><td>Safe haven asset</td></tr>"
+    html += f"<tr><td class='metric-name'>Initial Capital</td><td>${initial_capital:,.2f}</td><td>Starting investment amount</td></tr>"
+    html += f"<tr><td class='metric-name'>Momentum Period 1</td><td>{n1} month(s)</td><td>Short-term momentum lookback</td></tr>"
+    html += f"<tr><td class='metric-name'>Momentum Period 2</td><td>{n2} months</td><td>Medium-term momentum lookback</td></tr>"
+    html += f"<tr><td class='metric-name'>Momentum Period 3</td><td>{n3} months</td><td>Long-term momentum lookback</td></tr>"
+    html += f"<tr><td class='metric-name'>Rebalancing Frequency</td><td>Monthly</td><td>Portfolio adjustment frequency</td></tr>"
+    html += f"<tr><td class='metric-name'>Data Source</td><td>Yahoo Finance</td><td>Historical price data provider</td></tr>"
+    html += f"<tr><td class='metric-name'>Strategy Type</td><td>Dual Momentum</td><td>Accelerating dual momentum investing</td></tr>"
+    
+    html += "</table>"
+    return html
+
+def generate_statistics_table(stats):
+    """Generate HTML for the performance results table (output metrics only)"""
+    html = "<table class='statistics-table'>"
+    html += f"<tr><th>Performance Metric</th><th>Dual Momentum Portfolio</th><th>{risky1} Buy & Hold</th></tr>"
+    
     html += f"<tr><td class='metric-name'>Final Value</td><td>${stats['final_portfolio']:,.2f}</td><td>${stats['final_benchmark']:,.2f}</td></tr>"
     html += f"<tr><td class='metric-name'>Total Return</td><td>{stats['portfolio_total_return']:.2f}%</td><td>{stats['benchmark_total_return']:.2f}%</td></tr>"
     html += f"<tr><td class='metric-name'>Annualized Return</td><td>{stats['portfolio_annual_return']:.2f}%</td><td>{stats['benchmark_annual_return']:.2f}%</td></tr>"
     html += f"<tr><td class='metric-name'>Maximum Drawdown</td><td>{stats['portfolio_max_drawdown']:.2f}%</td><td>{stats['benchmark_max_drawdown']:.2f}%</td></tr>"
     html += f"<tr><td class='metric-name'>Time Period</td><td>{stats['years']:.1f} years</td><td>{stats['years']:.1f} years</td></tr>"
     html += f"<tr><td class='metric-name'>Total Number of Trades</td><td>{stats['total_trades']}</td><td>1 (Buy & Hold)</td></tr>"
-    html += f"<tr><td class='metric-name'>SPY Trades</td><td>{stats['spy_trades']}</td><td>-</td></tr>"
-    html += f"<tr><td class='metric-name'>VINEX Trades</td><td>{stats['vinex_trades']}</td><td>-</td></tr>"
-    html += f"<tr><td class='metric-name'>VUSTX Trades</td><td>{stats['vustx_trades']}</td><td>-</td></tr>"
+    html += f"<tr><td class='metric-name'>Average Trades per Year</td><td>{stats['annual_avg_trades']:.1f}</td><td>0 (Buy & Hold)</td></tr>"
+    html += f"<tr><td class='metric-name'>{risky1} Trades</td><td>{stats['risky1_trades']}</td><td>-</td></tr>"
+    html += f"<tr><td class='metric-name'>{risky2} Trades</td><td>{stats['risky2_trades']}</td><td>-</td></tr>"
+    html += f"<tr><td class='metric-name'>{safe1} Trades</td><td>{stats['safe1_trades']}</td><td>-</td></tr>"
     
     html += "</table>"
     return html
@@ -382,10 +425,10 @@ def generate_statistics_table(stats):
 def calculate_statistics():
     """Calculate key performance statistics"""
     # Count trades for each instrument
-    spy_trades = sum(1 for output in buy_signals["Output"] if "SPY" in output and "Keep" not in output)
-    vinex_trades = sum(1 for output in buy_signals["Output"] if "VINEX" in output and "Keep" not in output)
-    vustx_trades = sum(1 for output in buy_signals["Output"] if "VUSTX" in output and "Keep" not in output)
-    total_trades = spy_trades + vinex_trades + vustx_trades
+    risky1_trades = sum(1 for output in buy_signals["Output"] if risky1 in output and "Keep" not in output)
+    risky2_trades = sum(1 for output in buy_signals["Output"] if risky2 in output and "Keep" not in output)
+    safe1_trades = sum(1 for output in buy_signals["Output"] if safe1 in output and "Keep" not in output)
+    total_trades = risky1_trades + risky2_trades + safe1_trades
     
     # Calculate annual performance - add validation
     initial_portfolio = float(results["Port_val"][0])
@@ -430,11 +473,15 @@ def calculate_statistics():
     
     benchmark_max_drawdown = min(benchmark_drawdown) * 100  # Convert to percentage
     
+    # Calculate yearly average of total trades
+    annual_avg_trades = total_trades / years if years > 0 else 0
+    
     return {
-        'spy_trades': spy_trades,
-        'vinex_trades': vinex_trades,
-        'vustx_trades': vustx_trades,
+        'risky1_trades': risky1_trades,
+        'risky2_trades': risky2_trades,
+        'safe1_trades': safe1_trades,
         'total_trades': total_trades,
+        'annual_avg_trades': annual_avg_trades,
         'portfolio_annual_return': portfolio_annual_return,
         'benchmark_annual_return': benchmark_annual_return,
         'portfolio_total_return': portfolio_total_return,
@@ -658,9 +705,11 @@ html_content_str = "<html>\n<head>\n<title>Accelerating Dual Momentum Investing<
                    "<script src='https://cdn.jsdelivr.net/npm/chart.js'></script>\n" + \
                    "</head>\n<body>\n<div class='main-title'>Accelerating Dual Momentum Investing</div>\n" + \
                    "<div class='chart-container'>\n" + \
-                   "<div class='table-title'>Portfolio Performance vs S&P 500 Buy & Hold:</div>\n" + \
+                   f"<div class='table-title'>Portfolio Performance vs {risky1} Buy & Hold:</div>\n" + \
                    "<canvas id='performanceChart'></canvas>\n" + \
                    "</div>\n" + \
+                   "<div class='table-title'>Input Parameters:</div>\n" + \
+                   generate_input_parameters_table() + \
                    "<div class='table-title'>Performance Statistics:</div>\n" + \
                    statistics_table + \
                    "<button class='collapsible'>Data Table (Historical Prices and Returns)</button>\n" + \
@@ -685,15 +734,19 @@ const performanceChart = new Chart(ctx, {{
             backgroundColor: 'rgba(52, 152, 219, 0.1)',
             borderWidth: 2,
             fill: false,
-            tension: 0.1
+            tension: 0.1,
+            pointRadius: 0,
+            pointHoverRadius: 4
         }}, {{
-            label: 'S&P 500 Buy & Hold',
+            label: '{risky1} Buy & Hold',
             data: chartData.benchmark_values,
             borderColor: '#e74c3c',
             backgroundColor: 'rgba(231, 76, 60, 0.1)',
             borderWidth: 2,
             fill: false,
-            tension: 0.1
+            tension: 0.1,
+            pointRadius: 0,
+            pointHoverRadius: 4
         }}]
     }},
     options: {{
@@ -755,8 +808,11 @@ const performanceChart = new Chart(ctx, {{
             }}
         }},
         interaction: {{
-            mode: 'nearest',
-            axis: 'x',
+            mode: 'index',
+            intersect: false
+        }},
+        hover: {{
+            mode: 'index',
             intersect: false
         }}
     }}

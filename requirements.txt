@@ -1,15 +1,29 @@
-# Core dependencies for Accelerating Dual Momentum Investing application
-Flask>=2.3.0
-pandas>=2.0.0
-yfinance>=0.2.0
+# Requirements for Accelerating Dual Momentum Investing Application
+# Updated: November 2025 - Cleaned up unused dependencies
 
-# Flask dependencies (automatically installed but pinned for stability)
-Werkzeug>=2.3.0
-Jinja2>=3.1.0
-MarkupSafe>=2.1.0
-itsdangerous>=2.1.0
+# CORE APPLICATION DEPENDENCIES
+Flask>=2.3.0          # Web framework for serving the HTML results
+pandas>=2.0.0         # Data manipulation and analysis
+yfinance>=0.2.0       # Financial data retrieval (replaces yahoofinancials)
 
-# Pandas dependencies (automatically installed but pinned for stability)  
-numpy>=1.24.0
-python-dateutil>=2.8.2
-pytz>=2023.3
+# FLASK DEPENDENCIES (pinned for stability)
+Werkzeug>=2.3.0       # WSGI utilities (Flask dependency)
+Jinja2>=3.1.0         # Template engine (Flask dependency)
+MarkupSafe>=2.1.0     # Safe string handling (Jinja2 dependency)
+itsdangerous>=2.1.0   # Cryptographic signing (Flask dependency)
+
+# PANDAS DEPENDENCIES (pinned for stability)  
+numpy>=1.24.0         # Numerical computing (pandas dependency)
+python-dateutil>=2.8.2  # Date parsing utilities (pandas dependency)
+pytz>=2023.3          # Timezone handling (pandas dependency)
+
+# REMOVED UNUSED DEPENDENCIES:
+# - beautifulsoup4: Web scraping not used
+# - matplotlib: Charting handled by Chart.js in browser
+# - requests: HTTP requests handled by yfinance
+# - twilio: Messaging service not used
+# - yahoofinancials: Replaced by yfinance (more reliable)
+# - click: CLI framework not used (argparse used instead)
+# - Pillow: Image processing not needed
+# - PyJWT: JWT tokens not used
+# - Various other unused packages (colorama, cycler, etc.)
