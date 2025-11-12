@@ -156,16 +156,18 @@ for i in range(0, len(data["SPY"] - 1)):  # for rows in data retrieved
     data["VINEX > VUSTX"][i] = (data["total return- VINEX"][i] >= data["total return- VUSTX"][i])
 
 # VIDEO 5: SCORE CALCULATION II (MORE CALCULATIONS)
+# Define initial capital
+initial_capital = 10000
 # remove first n1 values which are equal to 0
 data = data[n3:].reset_index(drop=True)
-data["Benchmark"][0] = 1000000 / (data["SPY"][0]) * data["SPY"][0]
+data["Benchmark"][0] = initial_capital / (data["SPY"][0]) * data["SPY"][0]
 # change "Output" value depending out total returns
 if data["SPY > VINEX"][0]:
     data["Output"][0] = "SPY" if 0 < data["total return- SPY"][0] else "VUSTX"
 else:
     data["Output"][0] = "VINEX" if data["total return- VINEX"][0] > 0 else "VUSTX"
 # calculate benchmark values
-for i in range(1, len(data["SPY"] - 1)): data["Benchmark"][i] = 1000000 / (data["SPY"][0]) * (data["SPY"][i])
+for i in range(1, len(data["SPY"] - 1)): data["Benchmark"][i] = initial_capital / (data["SPY"][0]) * (data["SPY"][i])
 
 # VIDEO 6: SIGNALS I (CREATE BUY SIGNALS)
 for i in range(1, len(data["SPY"] - 1)):
@@ -191,7 +193,6 @@ for i in range(1, len(data["SPY"] - 1)):
 
 # VIDEO 7: SIGNALS II (STORE THE BUY SIGNALS & MORE CALCULATIONS)
 # create new dataset ("buy_signals") with only buy signals (remove Keep signals)
-initial_capital = 1000000
 buy_signals = data.drop(data[data.Output == "Keep VUSTX"].index).drop(data[data.Output == "Keep SPY"].index) \
     .drop(data[data.Output == "Keep VINEX"].index).reset_index(drop=True)
 # columns with qty amount to buy
@@ -234,7 +235,7 @@ for i in range(1, len(buy_signals["Output"])):
     # realised value is cash value of assets + cash account at hand + profit/loss
     buy_signals["realised_val"][i] = buy_signals["realised_val"][i - 1] + buy_signals["P/L"][i] + \
                                      buy_signals["Cash Account"][i]
-buy_signals["Port_val"] = 1000000.0
+buy_signals["Port_val"] = initial_capital
 # calculate portfolio value which tracks the real time value of assets in the portfolio
 for i in range(1, len(buy_signals["realised_val"])):
     buy_signals["Port_val"][i] = (buy_signals["Qty VUSTX"][i] * buy_signals["VUSTX"][i]) + \
@@ -270,8 +271,8 @@ for i in range(1, len(results["realised_val"])):
     results["Qty"][i] = results["Qty SPY"][i] + results["Qty VINEX"][i] + results["Qty VUSTX"][i]
     if results["Cash Account"][i] == 0 and i != 0:
         results["Cash Account"][i] = results["Cash Account"][i - 1]
-results["Port_val"][0] = 1000000.0
-results["PortMax"][0] = 1000000.0
+results["Port_val"][0] = initial_capital
+results["PortMax"][0] = initial_capital
 for i in range(1, len(results["realised_val"])):
     results["Port_val"][i] = (results["Qty VUSTX"][i] * results["VUSTX"][i]) + (
             results["Qty SPY"][i] * results["SPY"][i]) + (results["Qty VINEX"][i] * results["VINEX"][i])
@@ -292,12 +293,6 @@ for i in range(1, len(results["realised_val"])):
 
 # VIDEO 9: RESULTS SUMMARIZATION II
 # prepare the string for the final result
-text1, text2, text3, text4 = str(results["Output"][len(results["Output"]) - 1]), \
-                             str(results["Qty"][len(results["Qty"]) - 1]), \
-                             str(results["Buy Amount"][len(results["Buy Amount"]) - 1]), \
-                             str(results["Port_val"][len(results["Port_val"]) - 1])
-message_text = "Output = " + text1 + '; Quantity = ' + text2 + '; Buy Amount =  ' + text3 + \
-               '; Portfolio_Value =  ' + text4
 # list of attributes in the data(index 0), buy_signals(index 1) and results(index 2) dictionaries
 data_attr = [["SPY", "VINEX", "VUSTX", f"{n1} month return- SPY", f"{n1} month return- VINEX",
               f"{n1} month return- VUSTX", f"{n2} month return- SPY", f"{n2} month return- VINEX",
@@ -662,7 +657,6 @@ else:
 html_content_str = "<html>\n<head>\n<title>Accelerating Dual Momentum Investing</title>\n" + css_styles + \
                    "<script src='https://cdn.jsdelivr.net/npm/chart.js'></script>\n" + \
                    "</head>\n<body>\n<div class='main-title'>Accelerating Dual Momentum Investing</div>\n" + \
-                   "<div class='summary'>" + message_text + "</div>\n" + \
                    "<div class='chart-container'>\n" + \
                    "<div class='table-title'>Portfolio Performance vs S&P 500 Buy & Hold:</div>\n" + \
                    "<canvas id='performanceChart'></canvas>\n" + \
