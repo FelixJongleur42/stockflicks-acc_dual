@@ -1,39 +1,120 @@
 # import all libraries useful for this program
 import pandas as pd  # pandas for manipulation of data
 import math  # math for calculations
-from yahoofinancials import YahooFinancials  # yahoofinancials for retrieving data
+import yfinance as yf  # yfinance for retrieving data (more reliable than yahoofinancials)
 import datetime as dt  # datetime for retrieving current time
 from flask import Flask  # flask for python web application
+import warnings  # warnings for suppressing pandas warnings
+import argparse  # argparse for command line argument parsing
+import json  # json for chart data serialization
 
-# VIDEO 2: DATA GRABBING (FROM YAHOO FINANCIALS)
+# Suppress pandas warnings about chained assignment and future warnings
+warnings.filterwarnings('ignore', category=pd.errors.SettingWithCopyWarning)
+warnings.filterwarnings('ignore', category=FutureWarning)
+
+# COMMAND LINE ARGUMENT PARSING
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='Accelerating Dual Momentum Investing Analysis')
+    parser.add_argument('--start-date', 
+                       type=str, 
+                       default='1998-01-01',
+                       help='Start date for data retrieval (format: YYYY-MM-DD, default: 1998-01-01)')
+    return parser.parse_args()
+
+# Parse command line arguments
+args = parse_arguments()
+
+# VIDEO 2: DATA GRABBING (FROM YFINANCE)
 # these raw data is collected for further calculations in this program
 all_tickers = ["SPY", "VINEX", "VUSTX"]
-def get_data():
+def get_data(start_date_str):
     close_prices = pd.DataFrame()
-    # get data of the recent years
-    end_date = (dt.date.today()).strftime('%Y-%m-%d')
-    beg_date = (dt.date.today() - dt.timedelta(5475)).strftime('%Y-%m-%d')
+    # get data from specified start date to today
+    end_date = dt.date.today()
+    try:
+        beg_date = dt.datetime.strptime(start_date_str, '%Y-%m-%d').date()
+    except ValueError:
+        print(f"Invalid date format: {start_date_str}. Using default date 1998-01-01")
+        beg_date = dt.date(1998, 1, 1)
     # to get data of a specific range, please replace the two lines above with: (example, the two lines below)
-    # beg_date = dt.date(2014, 6, 30).strftime('%Y-%m-%d')
-    # end_date = dt.date(2016, 6, 30).strftime('%Y-%m-%d')
+    # beg_date = dt.date(2014, 6, 30)
+    # end_date = dt.date(2016, 6, 30)
     # SPY:      S&P 500
     # VINEX:    Vanguard International Explorer
     # VUSTX:    Vanguard Long-term US Treasury
+    
+    # Create a list to store data for each ticker
+    ticker_data = []
+    
     # extracting stock data (historical close price) for the stocks identified
+    print(f"Downloading data from {beg_date} to {end_date} (start date specified: {start_date_str})")
     for ticker in all_tickers:
-        yahoo_financials = YahooFinancials(ticker)
-        json_obj = yahoo_financials.get_historical_price_data(beg_date, end_date, "monthly")
-        ohlv = json_obj[ticker]['prices']
-        temp = pd.DataFrame(ohlv)[["formatted_date", "adjclose"]]
-        # store dates in "Date" row (in the dictionary named close_prices)
-        close_prices["Date"] = temp["formatted_date"]
-        # store close prices of indexes in "SPY", "VINEX" and "VUSTX" rows
-        close_prices[ticker] = temp["adjclose"]
+        try:
+            print(f"Downloading data for {ticker}...")
+            # Download data using yfinance
+            stock_data = yf.download(ticker, start=beg_date, end=end_date, interval="1mo", progress=False)
+            
+            if not stock_data.empty:
+                # Reset index to get Date as a column
+                stock_data = stock_data.reset_index()
+                
+                # Debug: print the columns to understand the structure
+                print(f"Columns for {ticker}: {stock_data.columns.tolist()}")
+                
+                # Handle MultiIndex columns - flatten them first
+                if isinstance(stock_data.columns, pd.MultiIndex):
+                    # Flatten the MultiIndex columns
+                    stock_data.columns = ['_'.join(col).strip('_') for col in stock_data.columns]
+                
+                # Handle different column names that might be returned
+                adj_close_col = None
+                close_cols = [col for col in stock_data.columns if 'close' in col.lower() and ticker.upper() in col.upper()]
+                
+                if close_cols:
+                    adj_close_col = close_cols[0]  # Take the first matching close column
+                elif 'Close' in stock_data.columns:
+                    adj_close_col = 'Close'
+                elif 'Adj Close' in stock_data.columns:
+                    adj_close_col = 'Adj Close'
+                else:
+                    print(f"Could not find close price column for {ticker}")
+                    print(f"Available columns: {stock_data.columns.tolist()}")
+                    continue
+                
+                # Format the data to match original structure
+                temp = pd.DataFrame({
+                    'Date': stock_data['Date'].dt.strftime('%Y-%m-%d'),
+                    ticker: stock_data[adj_close_col].values  # Use .values to avoid index issues
+                })
+                
+                ticker_data.append(temp)
+                print(f"Successfully downloaded {len(temp)} data points for {ticker}")
+            else:
+                print(f"No data available for {ticker}")
+                
+        except Exception as e:
+            print(f"Error downloading data for {ticker}: {str(e)}")
+            continue
+    
+    # Merge all ticker data on Date
+    if ticker_data:
+        close_prices = ticker_data[0]
+        for i in range(1, len(ticker_data)):
+            close_prices = pd.merge(close_prices, ticker_data[i], on='Date', how='outer')
+        
+        # Sort by date and reset index
+        close_prices = close_prices.sort_values('Date').reset_index(drop=True)
         close_prices.dropna(axis=0, inplace=True)
-    return close_prices
+        print(f"Final dataset shape: {close_prices.shape}")
+        print(f"Columns: {close_prices.columns.tolist()}")
+        return close_prices
+    else:
+        print("No data was successfully downloaded for any ticker")
+        # Return empty DataFrame with expected structure
+        return pd.DataFrame(columns=['Date'] + all_tickers)
 # Note that: "close_prices"(as defined locally above) is now "data" globally
 # Store the data retrieved as "data". We will call the retrieved data as "data" from now on.
-data = get_data()  # "data" containing rows: "Date", "SPY", "VINEX" and "VUSTX"
+data = get_data(args.start_date)  # "data" containing rows: "Date", "SPY", "VINEX" and "VUSTX"
 
 # VIDEO 3: INITIALIZATION (OF NEW ATTRIBUTES & CONSTANTS)
 n1, n2, n3 = 1, 3, 6
@@ -198,15 +279,15 @@ for i in range(1, len(results["realised_val"])):
     results["PortMax"][i] = curr_set2.max()
     results["DrawDown"][i] = (results["Port_val"][i] - results["PortMax"][i]) / results["PortMax"][i]
 # calculate percent changes in porfolio and benchmark on monthly basis
-results["%change monthly"][0] = 0.0
-results["%change benchmark"][0] = 0.0
+results.loc[0, "%change monthly"] = 0.0
+results.loc[0, "%change benchmark"] = 0.0
 for i in range(1, len(results["realised_val"])):
     # percent change daily
-    results["%change monthly"][i] = (results["Port_val"][i] - results["Port_val"][i - 1]) / \
-                                    results["Port_val"][i - 1]
+    results.loc[i, "%change monthly"] = (results["Port_val"][i] - results["Port_val"][i - 1]) / \
+                                       results["Port_val"][i - 1]
     #    results["%change monthly"] = results["Port_val"].pct_change(1)
-    results["%change benchmark"][i] = (results["Benchmark"][i] - results["Benchmark"][i - 1]) / \
-                                      results["Benchmark"][i - 1]
+    results.loc[i, "%change benchmark"] = (results["Benchmark"][i] - results["Benchmark"][i - 1]) / \
+                                         results["Benchmark"][i - 1]
 
 
 # VIDEO 9: RESULTS SUMMARIZATION II
@@ -234,35 +315,477 @@ date2 = []
 for i in range(0, len(data["Output"])):
     if data["Output"][i] in all_tickers: date2.append(data["Date"][i])
 # construct the string of html codes (table)
+def format_value(value):
+    """Format numeric values to 2 decimal places, keep strings as-is"""
+    try:
+        # Try to convert to float and format
+        if isinstance(value, (int, float)):
+            return f"{float(value):.2f}"
+        elif isinstance(value, str) and value.replace('.', '').replace('-', '').replace('+', '').isdigit():
+            return f"{float(value):.2f}"
+        else:
+            return str(value)
+    except (ValueError, TypeError):
+        return str(value)
+
+def generate_chart_data():
+    """Generate data for the performance comparison chart"""
+    chart_data = {
+        'dates': [],
+        'portfolio_values': [],
+        'benchmark_values': []
+    }
+    
+    # Use results data for the chart - sample every few data points to avoid browser clogging
+    sample_rate = max(1, len(results["Date"]) // 100)  # Sample to max 100 points
+    
+    for i in range(0, len(results["Date"]), sample_rate):
+        chart_data['dates'].append(results["Date"][i])
+        
+        # Ensure we're working with reasonable portfolio values
+        port_val = float(results["Port_val"][i])
+        benchmark_val = float(results["Benchmark"][i])
+        
+        # Add some debugging output
+        if i == 0:
+            print(f"First data point - Portfolio: {port_val:,.2f}, Benchmark: {benchmark_val:,.2f}")
+        elif i == len(results["Date"]) - 1:
+            print(f"Last data point - Portfolio: {port_val:,.2f}, Benchmark: {benchmark_val:,.2f}")
+        
+        chart_data['portfolio_values'].append(port_val)
+        chart_data['benchmark_values'].append(benchmark_val)
+    
+    # Add the last point if we didn't get it due to sampling
+    if (len(results["Date"]) - 1) % sample_rate != 0:
+        last_idx = len(results["Date"]) - 1
+        chart_data['dates'].append(results["Date"][last_idx])
+        chart_data['portfolio_values'].append(float(results["Port_val"][last_idx]))
+        chart_data['benchmark_values'].append(float(results["Benchmark"][last_idx]))
+    
+    print(f"Chart data points: {len(chart_data['dates'])}")
+    return json.dumps(chart_data)
+
+def generate_statistics_table(stats):
+    """Generate HTML for the statistics comparison table"""
+    html = "<table class='statistics-table'>"
+    html += "<tr><th>Metric</th><th>Dual Momentum Portfolio</th><th>S&P 500 Buy & Hold</th></tr>"
+    
+    html += f"<tr><td class='metric-name'>Initial Value</td><td>${stats['initial_value']:,.2f}</td><td>${stats['initial_value']:,.2f}</td></tr>"
+    html += f"<tr><td class='metric-name'>Final Value</td><td>${stats['final_portfolio']:,.2f}</td><td>${stats['final_benchmark']:,.2f}</td></tr>"
+    html += f"<tr><td class='metric-name'>Total Return</td><td>{stats['portfolio_total_return']:.2f}%</td><td>{stats['benchmark_total_return']:.2f}%</td></tr>"
+    html += f"<tr><td class='metric-name'>Annualized Return</td><td>{stats['portfolio_annual_return']:.2f}%</td><td>{stats['benchmark_annual_return']:.2f}%</td></tr>"
+    html += f"<tr><td class='metric-name'>Maximum Drawdown</td><td>{stats['portfolio_max_drawdown']:.2f}%</td><td>{stats['benchmark_max_drawdown']:.2f}%</td></tr>"
+    html += f"<tr><td class='metric-name'>Time Period</td><td>{stats['years']:.1f} years</td><td>{stats['years']:.1f} years</td></tr>"
+    html += f"<tr><td class='metric-name'>Total Number of Trades</td><td>{stats['total_trades']}</td><td>1 (Buy & Hold)</td></tr>"
+    html += f"<tr><td class='metric-name'>SPY Trades</td><td>{stats['spy_trades']}</td><td>-</td></tr>"
+    html += f"<tr><td class='metric-name'>VINEX Trades</td><td>{stats['vinex_trades']}</td><td>-</td></tr>"
+    html += f"<tr><td class='metric-name'>VUSTX Trades</td><td>{stats['vustx_trades']}</td><td>-</td></tr>"
+    
+    html += "</table>"
+    return html
+
+def calculate_statistics():
+    """Calculate key performance statistics"""
+    # Count trades for each instrument
+    spy_trades = sum(1 for output in buy_signals["Output"] if "SPY" in output and "Keep" not in output)
+    vinex_trades = sum(1 for output in buy_signals["Output"] if "VINEX" in output and "Keep" not in output)
+    vustx_trades = sum(1 for output in buy_signals["Output"] if "VUSTX" in output and "Keep" not in output)
+    total_trades = spy_trades + vinex_trades + vustx_trades
+    
+    # Calculate annual performance - add validation
+    initial_portfolio = float(results["Port_val"][0])
+    final_portfolio = float(results["Port_val"][len(results["Port_val"]) - 1])
+    initial_benchmark = float(results["Benchmark"][0])
+    final_benchmark = float(results["Benchmark"][len(results["Benchmark"]) - 1])
+    
+    # Debug output to check values
+    print(f"Portfolio: Initial ${initial_portfolio:,.2f}, Final ${final_portfolio:,.2f}")
+    print(f"Benchmark: Initial ${initial_benchmark:,.2f}, Final ${final_benchmark:,.2f}")
+    
+    # Validate that we have reasonable values
+    if initial_portfolio <= 0 or final_portfolio <= 0 or initial_benchmark <= 0 or final_benchmark <= 0:
+        print("Warning: Invalid portfolio or benchmark values detected!")
+        return None
+    
+    # Calculate time period in years
+    start_date = results["Date"][0]
+    end_date = results["Date"][len(results["Date"]) - 1]
+    years = (dt.datetime.strptime(end_date, '%Y-%m-%d') - dt.datetime.strptime(start_date, '%Y-%m-%d')).days / 365.25
+    
+    # Annualized returns
+    portfolio_annual_return = ((final_portfolio / initial_portfolio) ** (1/years) - 1) * 100
+    benchmark_annual_return = ((final_benchmark / initial_benchmark) ** (1/years) - 1) * 100
+    
+    # Total returns
+    portfolio_total_return = ((final_portfolio / initial_portfolio) - 1) * 100
+    benchmark_total_return = ((final_benchmark / initial_benchmark) - 1) * 100
+    
+    # Max drawdown (already calculated in results)
+    portfolio_max_drawdown = min(results["DrawDown"]) * 100  # Convert to percentage
+    
+    # Calculate benchmark drawdown
+    benchmark_drawdown = []
+    benchmark_max = initial_benchmark
+    for i in range(len(results["Benchmark"])):
+        current_val = float(results["Benchmark"][i])
+        if current_val > benchmark_max:
+            benchmark_max = current_val
+        drawdown = (current_val - benchmark_max) / benchmark_max
+        benchmark_drawdown.append(drawdown)
+    
+    benchmark_max_drawdown = min(benchmark_drawdown) * 100  # Convert to percentage
+    
+    return {
+        'spy_trades': spy_trades,
+        'vinex_trades': vinex_trades,
+        'vustx_trades': vustx_trades,
+        'total_trades': total_trades,
+        'portfolio_annual_return': portfolio_annual_return,
+        'benchmark_annual_return': benchmark_annual_return,
+        'portfolio_total_return': portfolio_total_return,
+        'benchmark_total_return': benchmark_total_return,
+        'portfolio_max_drawdown': portfolio_max_drawdown,
+        'benchmark_max_drawdown': benchmark_max_drawdown,
+        'years': years,
+        'initial_value': initial_portfolio,
+        'final_portfolio': final_portfolio,
+        'final_benchmark': final_benchmark
+    }
+
 def gen_data_str(data_n, n):
-    ret_str = "<table border=1>"
-    # dates for tables 1 (data) and 3 (results)
-    if n == 1 or n == 3:
-        ret_str += "<tr><td>Date</td>"
-        for element in data["Date"]:
-            ret_str += "<td>" + str(element) + "</td>"
-        ret_str += "</tr>"
-    # dates for table 2 (signals)
-    if n == 2:
-        ret_str += "<tr><td>Date</td>"
-        for element in date2:
-            ret_str += "<td>" + str(element) + "</td>"
-        ret_str += "</tr>"
-    # rows of different attributes of the table
+    ret_str = "<table class='data-table'>"
+    
+    # Create header row with Date and all attributes
+    ret_str += "<tr class='header-row'><th>Date</th>"
     for attr in data_attr[n - 1]:
-        ret_str += "<tr><td>" + str(attr) + "</td>"
-        for element in data_n[attr]:
-            ret_str += "<td>" + str(element) + "</td>"
+        ret_str += "<th>" + str(attr) + "</th>"
+    ret_str += "</tr>"
+    
+    # Get the dates for this table type
+    dates_to_use = []
+    if n == 1 or n == 3:
+        dates_to_use = data["Date"]
+    elif n == 2:
+        dates_to_use = date2
+    
+    # Create one row per date with all attribute values
+    for i in range(len(dates_to_use)):
+        ret_str += "<tr><td class='date-cell'>" + str(dates_to_use[i]) + "</td>"
+        for attr in data_attr[n - 1]:
+            if attr in data_n and i < len(data_n[attr]):
+                formatted_value = format_value(data_n[attr][i])
+                ret_str += "<td class='data-cell'>" + formatted_value + "</td>"
+            else:
+                ret_str += "<td class='data-cell'>-</td>"  # Placeholder for missing data
         ret_str += "</tr>"
+    
     ret_str += "</table>"
     return ret_str
 # html codes of tables containing different sets of data, including header, result, and tables
-html_content_str = "<html>\n<head> <title>Accelerating Dual Momentum Investing</title>" + \
-                   "</head>\n<body><center><font size=6><b>Accelerating Dual Momentum " + \
-                   "Investing</b></font></center><br>\n<font size=4><b>" + message_text + \
-                   "</b></font><br><br><b>data (table 1):</b>" + gen_data_str(data, 1) + \
-                   "<br><b>buy_signals (table 2):</b>" + gen_data_str(buy_signals, 2) + \
-                   "<br><b>results (table 3):</b>" + gen_data_str(results, 3) + "</body>\n</html>"
+css_styles = """
+<style>
+    body {
+        font-family: 'Courier New', 'Monaco', 'Lucida Console', monospace;
+        margin: 20px;
+        background-color: #f5f5f5;
+    }
+    
+    .main-title {
+        text-align: center;
+        font-size: 28px;
+        font-weight: bold;
+        color: #2c3e50;
+        margin-bottom: 20px;
+    }
+    
+    .summary {
+        font-size: 16px;
+        font-weight: bold;
+        color: #34495e;
+        margin-bottom: 30px;
+        padding: 15px;
+        background-color: #ecf0f1;
+        border-left: 4px solid #3498db;
+    }
+    
+    .table-title {
+        font-size: 18px;
+        font-weight: bold;
+        color: #2c3e50;
+        margin-top: 30px;
+        margin-bottom: 10px;
+    }
+    
+    .data-table {
+        border-collapse: collapse;
+        width: 100%;
+        margin-bottom: 30px;
+        background-color: white;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
+    .header-row {
+        background-color: #34495e;
+        color: white;
+    }
+    
+    .header-row th {
+        padding: 12px 8px;
+        text-align: center;
+        font-weight: bold;
+        border: 1px solid #2c3e50;
+    }
+    
+    .data-cell, .date-cell {
+        padding: 8px;
+        text-align: right;
+        border: 1px solid #bdc3c7;
+        font-size: 12px;
+    }
+    
+    .date-cell {
+        text-align: center;
+        background-color: #ecf0f1;
+        font-weight: bold;
+    }
+    
+    .data-table tr:nth-child(even) {
+        background-color: #f8f9fa;
+    }
+    
+    .data-table tr:hover {
+        background-color: #e8f4f8;
+    }
+    
+    .chart-container {
+        margin: 30px 0;
+        background-color: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
+    #performanceChart {
+        width: 100%;
+        height: 400px;
+        max-height: 400px;
+    }
+    
+    .statistics-table {
+        border-collapse: collapse;
+        width: 100%;
+        margin-bottom: 30px;
+        background-color: white;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
+    .statistics-table th {
+        padding: 12px;
+        text-align: center;
+        font-weight: bold;
+        border: 1px solid #2c3e50;
+        background-color: #34495e;
+        color: white;
+    }
+    
+    .statistics-table td {
+        padding: 10px;
+        text-align: center;
+        border: 1px solid #bdc3c7;
+        font-size: 14px;
+    }
+    
+    .statistics-table tr:nth-child(even) {
+        background-color: #f8f9fa;
+    }
+    
+    .metric-name {
+        text-align: left !important;
+        font-weight: bold;
+        background-color: #ecf0f1 !important;
+    }
+    
+    .collapsible {
+        background-color: #34495e;
+        color: white;
+        cursor: pointer;
+        padding: 15px;
+        width: 100%;
+        border: none;
+        text-align: left;
+        outline: none;
+        font-size: 16px;
+        font-weight: bold;
+        margin-top: 20px;
+        font-family: 'Courier New', 'Monaco', 'Lucida Console', monospace;
+    }
+    
+    .collapsible:hover {
+        background-color: #2c3e50;
+    }
+    
+    .collapsible:after {
+        content: '\\002B';
+        color: white;
+        font-weight: bold;
+        float: right;
+        margin-left: 5px;
+    }
+    
+    .active:after {
+        content: "\\2212";
+    }
+    
+    .content {
+        padding: 0;
+        display: none;
+        overflow: hidden;
+        background-color: #f1f1f1;
+    }
+    
+    .content.show {
+        display: block;
+        padding: 15px;
+    }
+</style>
+"""
+
+chart_data_json = generate_chart_data()
+stats = calculate_statistics()
+
+# Handle case where statistics calculation fails
+if stats is None:
+    statistics_table = "<p>Error: Could not calculate statistics due to invalid data.</p>"
+else:
+    statistics_table = generate_statistics_table(stats)
+
+html_content_str = "<html>\n<head>\n<title>Accelerating Dual Momentum Investing</title>\n" + css_styles + \
+                   "<script src='https://cdn.jsdelivr.net/npm/chart.js'></script>\n" + \
+                   "</head>\n<body>\n<div class='main-title'>Accelerating Dual Momentum Investing</div>\n" + \
+                   "<div class='summary'>" + message_text + "</div>\n" + \
+                   "<div class='chart-container'>\n" + \
+                   "<div class='table-title'>Portfolio Performance vs S&P 500 Buy & Hold:</div>\n" + \
+                   "<canvas id='performanceChart'></canvas>\n" + \
+                   "</div>\n" + \
+                   "<div class='table-title'>Performance Statistics:</div>\n" + \
+                   statistics_table + \
+                   "<button class='collapsible'>Data Table (Historical Prices and Returns)</button>\n" + \
+                   "<div class='content'>" + gen_data_str(data, 1) + "</div>\n" + \
+                   "<button class='collapsible'>Buy Signals Table (Trading Actions)</button>\n" + \
+                   "<div class='content'>" + gen_data_str(buy_signals, 2) + "</div>\n" + \
+                   "<button class='collapsible'>Results Table (Portfolio Performance)</button>\n" + \
+                   "<div class='content'>" + gen_data_str(results, 3) + "</div>\n" + \
+                   f"""
+<script>
+const chartData = {chart_data_json};
+
+const ctx = document.getElementById('performanceChart').getContext('2d');
+const performanceChart = new Chart(ctx, {{
+    type: 'line',
+    data: {{
+        labels: chartData.dates,
+        datasets: [{{
+            label: 'Dual Momentum Portfolio',
+            data: chartData.portfolio_values,
+            borderColor: '#3498db',
+            backgroundColor: 'rgba(52, 152, 219, 0.1)',
+            borderWidth: 2,
+            fill: false,
+            tension: 0.1
+        }}, {{
+            label: 'S&P 500 Buy & Hold',
+            data: chartData.benchmark_values,
+            borderColor: '#e74c3c',
+            backgroundColor: 'rgba(231, 76, 60, 0.1)',
+            borderWidth: 2,
+            fill: false,
+            tension: 0.1
+        }}]
+    }},
+    options: {{
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: {{
+            duration: 0 // Disable animations for better performance
+        }},
+        scales: {{
+            x: {{
+                title: {{
+                    display: true,
+                    text: 'Date'
+                }},
+                ticks: {{
+                    maxTicksLimit: 8,
+                    maxRotation: 45
+                }}
+            }},
+            y: {{
+                title: {{
+                    display: true,
+                    text: 'Portfolio Value ($)'
+                }},
+                ticks: {{
+                    maxTicksLimit: 8,
+                    callback: function(value, index, values) {{
+                        if (value >= 1000000) {{
+                            return '$' + (value / 1000000).toFixed(1) + 'M';
+                        }} else if (value >= 1000) {{
+                            return '$' + (value / 1000).toFixed(0) + 'K';
+                        }} else {{
+                            return '$' + value.toFixed(0);
+                        }}
+                    }}
+                }}
+            }}
+        }},
+        plugins: {{
+            title: {{
+                display: true,
+                text: 'Portfolio Performance Comparison',
+                font: {{
+                    size: 16
+                }}
+            }},
+            legend: {{
+                display: true,
+                position: 'top'
+            }},
+            tooltip: {{
+                mode: 'index',
+                intersect: false,
+                callbacks: {{
+                    label: function(context) {{
+                        return context.dataset.label + ': $' + context.parsed.y.toLocaleString();
+                    }}
+                }}
+            }}
+        }},
+        interaction: {{
+            mode: 'nearest',
+            axis: 'x',
+            intersect: false
+        }}
+    }}
+}});
+
+// Collapsible functionality
+var coll = document.getElementsByClassName("collapsible");
+var i;
+
+for (i = 0; i < coll.length; i++) {{
+    coll[i].addEventListener("click", function() {{
+        this.classList.toggle("active");
+        var content = this.nextElementSibling;
+        if (content.style.display === "block") {{
+            content.style.display = "none";
+        }} else {{
+            content.style.display = "block";
+        }}
+    }});
+}}
+</script>
+""" + \
+                   "</body>\n</html>"
 # run the web app using Flask
 application = Flask(__name__)
 application.add_url_rule('/', 'index', (lambda: html_content_str))
