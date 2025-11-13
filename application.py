@@ -378,6 +378,99 @@ def generate_chart_data():
     print(f"Chart data points: {len(chart_data['dates'])}")
     return json.dumps(chart_data)
 
+def generate_timeline_data():
+    """Generate timeline data synchronized with chart data for integrated visualization"""
+    # Define colors for each instrument (with transparency for background)
+    instrument_colors = {
+        risky1: {'solid': '#3498db', 'transparent': 'rgba(52, 152, 219, 0.15)'},   # Blue
+        risky2: {'solid': '#e74c3c', 'transparent': 'rgba(231, 76, 60, 0.15)'},   # Red  
+        safe1: {'solid': '#2ecc71', 'transparent': 'rgba(46, 204, 113, 0.15)'}    # Green
+    }
+    
+    # Create timeline annotations for Chart.js
+    annotations = []
+    timeline_segments = []
+    
+    # Get sampled chart data dates to match chart x-axis
+    sample_rate = max(1, len(results["Date"]) // 100)  # Same sampling as chart
+    chart_dates = []
+    chart_instruments = []
+    
+    for i in range(0, len(results["Date"]), sample_rate):
+        chart_dates.append(results["Date"][i])
+        # Extract the actual instrument from Output (remove "Keep " if present)
+        output_value = results["Output"][i]
+        if output_value.startswith("Keep "):
+            instrument = output_value[5:]  # Remove "Keep " prefix
+        else:
+            instrument = output_value
+        chart_instruments.append(instrument)
+    
+    # Add the last point if not included in sampling
+    if (len(results["Date"]) - 1) % sample_rate != 0:
+        last_idx = len(results["Date"]) - 1
+        chart_dates.append(results["Date"][last_idx])
+        output_value = results["Output"][last_idx]
+        if output_value.startswith("Keep "):
+            instrument = output_value[5:]
+        else:
+            instrument = output_value
+        chart_instruments.append(instrument)
+    
+    if len(chart_dates) == 0:
+        return {'annotations': [], 'segments': [], 'colors': instrument_colors}
+    
+    # Find all transition points where instrument changes
+    transitions = [0]  # Always start at index 0
+    for i in range(1, len(chart_instruments)):
+        if chart_instruments[i] != chart_instruments[i-1]:
+            transitions.append(i)
+    transitions.append(len(chart_instruments))  # Add end point
+    
+    # Create continuous segments between transitions
+    for i in range(len(transitions) - 1):
+        start_idx = transitions[i]
+        end_idx = transitions[i + 1]
+        
+        instrument = chart_instruments[start_idx]
+        start_date = chart_dates[start_idx]
+        
+        # For the end date, use the next transition point or the last date
+        if end_idx < len(chart_dates):
+            end_date = chart_dates[end_idx]
+        else:
+            end_date = chart_dates[-1]  # Last available date
+        
+        # Create annotation
+        annotations.append({
+            'type': 'box',
+            'xMin': start_date,
+            'xMax': end_date,
+            'yMin': 0,
+            'yMax': 'max',
+            'backgroundColor': instrument_colors.get(instrument, {'transparent': 'rgba(149, 165, 166, 0.15)'})['transparent'],
+            'borderColor': 'transparent',
+            'label': {
+                'content': instrument,
+                'enabled': True,
+                'position': 'center'
+            }
+        })
+        
+        # Create segment info for legend
+        timeline_segments.append({
+            'instrument': instrument,
+            'color': instrument_colors.get(instrument, {'solid': '#95a5a6'})['solid'],
+            'start_date': start_date,
+            'end_date': end_date
+        })
+    
+    return {
+        'annotations': annotations,
+        'segments': timeline_segments,
+        'colors': instrument_colors
+    }
+
 def generate_input_parameters_table():
     """Generate HTML for the input parameters table"""
     # Get actual date range from the data
@@ -689,10 +782,38 @@ css_styles = """
         display: block;
         padding: 15px;
     }
+    
+    .timeline-legend {
+        display: flex;
+        justify-content: center;
+        gap: 20px;
+        margin-top: 15px;
+        flex-wrap: wrap;
+        padding: 10px;
+        background-color: #f8f9fa;
+        border-radius: 4px;
+        border: 1px solid #dee2e6;
+    }
+    
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        font-weight: bold;
+    }
+    
+    .legend-color {
+        width: 20px;
+        height: 15px;
+        border-radius: 3px;
+    }
 </style>
 """
 
 chart_data_json = generate_chart_data()
+timeline_data = generate_timeline_data()
+timeline_data_json = json.dumps(timeline_data)
 stats = calculate_statistics()
 
 # Handle case where statistics calculation fails
@@ -703,10 +824,17 @@ else:
 
 html_content_str = "<html>\n<head>\n<title>Accelerating Dual Momentum Investing</title>\n" + css_styles + \
                    "<script src='https://cdn.jsdelivr.net/npm/chart.js'></script>\n" + \
+                   "<script src='https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js'></script>\n" + \
+                   "<script src='https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation'></script>\n" + \
                    "</head>\n<body>\n<div class='main-title'>Accelerating Dual Momentum Investing</div>\n" + \
                    "<div class='chart-container'>\n" + \
                    f"<div class='table-title'>Portfolio Performance vs {risky1} Buy & Hold:</div>\n" + \
                    "<canvas id='performanceChart'></canvas>\n" + \
+                   "<div class='timeline-legend'>\n" + \
+                   f"<div class='legend-item'><div class='legend-color' style='background-color: rgba(52, 152, 219, 0.15); border: 2px solid #3498db;'></div><span>{risky1} Holdings</span></div>\n" + \
+                   f"<div class='legend-item'><div class='legend-color' style='background-color: rgba(231, 76, 60, 0.15); border: 2px solid #e74c3c;'></div><span>{risky2} Holdings</span></div>\n" + \
+                   f"<div class='legend-item'><div class='legend-color' style='background-color: rgba(46, 204, 113, 0.15); border: 2px solid #2ecc71;'></div><span>{safe1} Holdings</span></div>\n" + \
+                   "</div>\n" + \
                    "</div>\n" + \
                    "<div class='table-title'>Input Parameters:</div>\n" + \
                    generate_input_parameters_table() + \
@@ -721,6 +849,7 @@ html_content_str = "<html>\n<head>\n<title>Accelerating Dual Momentum Investing<
                    f"""
 <script>
 const chartData = {chart_data_json};
+const timelineData = {timeline_data_json};
 
 const ctx = document.getElementById('performanceChart').getContext('2d');
 const performanceChart = new Chart(ctx, {{
@@ -730,23 +859,25 @@ const performanceChart = new Chart(ctx, {{
         datasets: [{{
             label: 'Dual Momentum Portfolio',
             data: chartData.portfolio_values,
-            borderColor: '#3498db',
-            backgroundColor: 'rgba(52, 152, 219, 0.1)',
-            borderWidth: 2,
+            borderColor: '#2c3e50',
+            backgroundColor: 'rgba(44, 62, 80, 0.1)',
+            borderWidth: 3,
             fill: false,
             tension: 0.1,
             pointRadius: 0,
-            pointHoverRadius: 4
+            pointHoverRadius: 6,
+            yAxisID: 'y'
         }}, {{
             label: '{risky1} Buy & Hold',
             data: chartData.benchmark_values,
-            borderColor: '#e74c3c',
-            backgroundColor: 'rgba(231, 76, 60, 0.1)',
+            borderColor: '#7f8c8d',
+            backgroundColor: 'rgba(127, 140, 141, 0.1)',
             borderWidth: 2,
             fill: false,
             tension: 0.1,
             pointRadius: 0,
-            pointHoverRadius: 4
+            pointHoverRadius: 4,
+            yAxisID: 'y'
         }}]
     }},
     options: {{
@@ -788,7 +919,7 @@ const performanceChart = new Chart(ctx, {{
         plugins: {{
             title: {{
                 display: true,
-                text: 'Portfolio Performance Comparison',
+                text: 'Portfolio Performance with Instrument Holdings Timeline',
                 font: {{
                     size: 16
                 }}
@@ -805,6 +936,9 @@ const performanceChart = new Chart(ctx, {{
                         return context.dataset.label + ': $' + context.parsed.y.toLocaleString();
                     }}
                 }}
+            }},
+            annotation: {{
+                annotations: timelineData.annotations || {{}}
             }}
         }},
         interaction: {{
