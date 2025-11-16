@@ -342,38 +342,57 @@ def format_value(value):
         return str(value)
 
 def generate_chart_data():
-    """Generate data for the performance comparison chart"""
+    """Generate data for the performance comparison chart with normalized values (factor 1 start)"""
     chart_data = {
         'dates': [],
         'portfolio_values': [],
-        'benchmark_values': []
+        'benchmark_values': [],
+        'risky1_values': [],
+        'risky2_values': [],
+        'safe1_values': []
     }
     
     # Use results data for the chart - sample every few data points to avoid browser clogging
     sample_rate = max(1, len(results["Date"]) // 100)  # Sample to max 100 points
     
+    # Get initial values for normalization
+    initial_portfolio = float(results["Port_val"][0])
+    initial_benchmark = float(results["Benchmark"][0])
+    initial_risky1 = float(results[risky1][0])
+    initial_risky2 = float(results[risky2][0])
+    initial_safe1 = float(results[safe1][0])
+    
     for i in range(0, len(results["Date"]), sample_rate):
         chart_data['dates'].append(results["Date"][i])
         
-        # Ensure we're working with reasonable portfolio values
-        port_val = float(results["Port_val"][i])
-        benchmark_val = float(results["Benchmark"][i])
+        # Normalize all values to start at factor 1 (relative performance)
+        port_val = float(results["Port_val"][i]) / initial_portfolio
+        benchmark_val = float(results["Benchmark"][i]) / initial_benchmark
+        risky1_val = float(results[risky1][i]) / initial_risky1
+        risky2_val = float(results[risky2][i]) / initial_risky2
+        safe1_val = float(results[safe1][i]) / initial_safe1
         
         # Add some debugging output
         if i == 0:
-            print(f"First data point - Portfolio: {port_val:,.2f}, Benchmark: {benchmark_val:,.2f}")
+            print(f"First data point - Portfolio: {port_val:.2f}, Benchmark: {benchmark_val:.2f}")
         elif i == len(results["Date"]) - 1:
-            print(f"Last data point - Portfolio: {port_val:,.2f}, Benchmark: {benchmark_val:,.2f}")
+            print(f"Last data point - Portfolio: {port_val:.2f}, Benchmark: {benchmark_val:.2f}")
         
         chart_data['portfolio_values'].append(port_val)
         chart_data['benchmark_values'].append(benchmark_val)
+        chart_data['risky1_values'].append(risky1_val)
+        chart_data['risky2_values'].append(risky2_val)
+        chart_data['safe1_values'].append(safe1_val)
     
     # Add the last point if we didn't get it due to sampling
     if (len(results["Date"]) - 1) % sample_rate != 0:
         last_idx = len(results["Date"]) - 1
         chart_data['dates'].append(results["Date"][last_idx])
-        chart_data['portfolio_values'].append(float(results["Port_val"][last_idx]))
-        chart_data['benchmark_values'].append(float(results["Benchmark"][last_idx]))
+        chart_data['portfolio_values'].append(float(results["Port_val"][last_idx]) / initial_portfolio)
+        chart_data['benchmark_values'].append(float(results["Benchmark"][last_idx]) / initial_benchmark)
+        chart_data['risky1_values'].append(float(results[risky1][last_idx]) / initial_risky1)
+        chart_data['risky2_values'].append(float(results[risky2][last_idx]) / initial_risky2)
+        chart_data['safe1_values'].append(float(results[safe1][last_idx]) / initial_safe1)
     
     print(f"Chart data points: {len(chart_data['dates'])}")
     return json.dumps(chart_data)
@@ -828,7 +847,7 @@ html_content_str = "<html>\n<head>\n<title>Accelerating Dual Momentum Investing<
                    "<script src='https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation'></script>\n" + \
                    "</head>\n<body>\n<div class='main-title'>Accelerating Dual Momentum Investing</div>\n" + \
                    "<div class='chart-container'>\n" + \
-                   f"<div class='table-title'>Portfolio Performance vs {risky1} Buy & Hold:</div>\n" + \
+                   f"<div class='table-title'>Relative Performance Comparison (Normalized to 1.0):</div>\n" + \
                    "<canvas id='performanceChart'></canvas>\n" + \
                    "<div class='timeline-legend'>\n" + \
                    f"<div class='legend-item'><div class='legend-color' style='background-color: rgba(52, 152, 219, 0.15); border: 2px solid #3498db;'></div><span>{risky1} Holdings</span></div>\n" + \
@@ -859,25 +878,51 @@ const performanceChart = new Chart(ctx, {{
         datasets: [{{
             label: 'Dual Momentum Portfolio',
             data: chartData.portfolio_values,
-            borderColor: '#2c3e50',
-            backgroundColor: 'rgba(44, 62, 80, 0.1)',
-            borderWidth: 3,
+            borderColor: '#8e44ad',
+            backgroundColor: 'rgba(142, 68, 173, 0.1)',
+            borderWidth: 4,
             fill: false,
             tension: 0.1,
             pointRadius: 0,
             pointHoverRadius: 6,
-            yAxisID: 'y'
+            yAxisID: 'y',
+            order: 1
         }}, {{
-            label: '{risky1} Buy & Hold',
-            data: chartData.benchmark_values,
-            borderColor: '#7f8c8d',
-            backgroundColor: 'rgba(127, 140, 141, 0.1)',
+            label: '{risky1}',
+            data: chartData.risky1_values,
+            borderColor: '#3498db',
+            backgroundColor: 'rgba(52, 152, 219, 0.05)',
             borderWidth: 2,
             fill: false,
             tension: 0.1,
             pointRadius: 0,
-            pointHoverRadius: 4,
-            yAxisID: 'y'
+            pointHoverRadius: 3,
+            yAxisID: 'y',
+            order: 2
+        }}, {{
+            label: '{risky2}',
+            data: chartData.risky2_values,
+            borderColor: '#e74c3c',
+            backgroundColor: 'rgba(231, 76, 60, 0.05)',
+            borderWidth: 2,
+            fill: false,
+            tension: 0.1,
+            pointRadius: 0,
+            pointHoverRadius: 3,
+            yAxisID: 'y',
+            order: 3
+        }}, {{
+            label: '{safe1}',
+            data: chartData.safe1_values,
+            borderColor: '#2ecc71',
+            backgroundColor: 'rgba(46, 204, 113, 0.05)',
+            borderWidth: 2,
+            fill: false,
+            tension: 0.1,
+            pointRadius: 0,
+            pointHoverRadius: 3,
+            yAxisID: 'y',
+            order: 4
         }}]
     }},
     options: {{
@@ -900,18 +945,12 @@ const performanceChart = new Chart(ctx, {{
             y: {{
                 title: {{
                     display: true,
-                    text: 'Portfolio Value ($)'
+                    text: 'Relative Performance (Factor)'
                 }},
                 ticks: {{
                     maxTicksLimit: 8,
                     callback: function(value, index, values) {{
-                        if (value >= 1000000) {{
-                            return '$' + (value / 1000000).toFixed(1) + 'M';
-                        }} else if (value >= 1000) {{
-                            return '$' + (value / 1000).toFixed(0) + 'K';
-                        }} else {{
-                            return '$' + value.toFixed(0);
-                        }}
+                        return value.toFixed(2) + 'x';
                     }}
                 }}
             }}
@@ -919,7 +958,7 @@ const performanceChart = new Chart(ctx, {{
         plugins: {{
             title: {{
                 display: true,
-                text: 'Portfolio Performance with Instrument Holdings Timeline',
+                text: 'Relative Performance Comparison with Holdings Timeline',
                 font: {{
                     size: 16
                 }}
@@ -933,7 +972,10 @@ const performanceChart = new Chart(ctx, {{
                 intersect: false,
                 callbacks: {{
                     label: function(context) {{
-                        return context.dataset.label + ': $' + context.parsed.y.toLocaleString();
+                        const value = context.parsed.y;
+                        const percentage = ((value - 1) * 100).toFixed(1);
+                        return context.dataset.label + ': ' + value.toFixed(2) + 'x (' + 
+                               (value >= 1 ? '+' : '') + percentage + '%)';
                     }}
                 }}
             }},
